@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockfish Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .log { background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Stockfish Engine Test</h1>
+    
+    <div>
+        <button onclick="testWorkerSupport()">Test Web Worker Support</button>
+        <button onclick="testStockfishLoad()">Test Stockfish Loading</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <div id="logs"></div>
+
+    <script>
+        let stockfishWorker = null;
+        
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`;
+            logs.appendChild(div);
+            console.log(message);
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+        
+        function testWorkerSupport() {
+            log('Testing Web Worker support...');
+            
+            if (typeof Worker === 'undefined') {
+                log('❌ Web Workers are NOT supported in this browser', 'error');
+                return false;
+            }
+            
+            log('✅ Web Workers are supported', 'success');
+            
+            // Test if we can create a simple worker
+            try {
+                const blob = new Blob(['self.postMessage("worker test");'], { type: 'application/javascript' });
+                const url = URL.createObjectURL(blob);
+                const testWorker = new Worker(url);
+                
+                testWorker.onmessage = function(e) {
+                    log('✅ Basic worker creation successful', 'success');
+                    testWorker.terminate();
+                    URL.revokeObjectURL(url);
+                };
+                
+                testWorker.onerror = function(e) {
+                    log('❌ Basic worker creation failed: ' + e.message, 'error');
+                    URL.revokeObjectURL(url);
+                };
+                
+            } catch (error) {
+                log('❌ Worker creation error: ' + error.message, 'error');
+            }
+            
+            return true;
+        }
+        
+        async function testStockfishLoad() {
+            if (!testWorkerSupport()) {
+                return;
+            }
+            
+            const sources = [
+                './stockfish/stockfish.js',
+                'https://unpkg.com/stockfish.js@10.0.2/stockfish.js',
+                'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js'
+            ];
+            
+            for (let i = 0; i < sources.length; i++) {
+                const url = sources[i];
+                log(`Attempting to load Stockfish from: ${url}`);
+                
+                const success = await testSingleSource(url);
+                if (success) {
+                    log(`✅ Successfully loaded Stockfish from: ${url}`, 'success');
+                    return;
+                }
+            }
+            
+            log('❌ Failed to load Stockfish from any source', 'error');
+        }
+        
+        function testSingleSource(url) {
+            return new Promise((resolve) => {
+                try {
+                    const worker = new Worker(url);
+                    let uciReceived = false;
+                    let readyReceived = false;
+                    
+                    const timeout = setTimeout(() => {
+                        log(`⏰ Timeout loading from ${url}`, 'error');
+                        worker.terminate();
+                        resolve(false);
+                    }, 8000);
+                    
+                    worker.onmessage = function(e) {
+                        const message = e.data;
+                        log(`📥 Message from ${url}: ${message}`);
+                        
+                        if (message === 'uciok') {
+                            uciReceived = true;
+                            log('Sending "isready" command...');
+                            worker.postMessage('isready');
+                        } else if (message === 'readyok') {
+                            readyReceived = true;
+                            log(`✅ Stockfish ready from ${url}`, 'success');
+                            clearTimeout(timeout);
+                            worker.terminate();
+                            resolve(true);
+                        }
+                    };
+                    
+                    worker.onerror = function(e) {
+                        log(`❌ Worker error from ${url}: ${e.message || e.type}`, 'error');
+                        clearTimeout(timeout);
+                        resolve(false);
+                    };
+                    
+                    log('Sending "uci" command...');
+                    worker.postMessage('uci');
+                    
+                } catch (error) {
+                    log(`❌ Exception loading ${url}: ${error.message}`, 'error');
+                    resolve(false);
+                }
+            });
+        }
+        
+        // Auto-run basic test on page load
+        window.onload = function() {
+            log('🚀 Stockfish test page loaded');
+            log('Click buttons above to run tests');
+        };
+    </script>
+</body>
+</html>

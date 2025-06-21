@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockfish Evaluation Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .position { background: #f9f9f9; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .evaluation { font-weight: bold; color: #2196f3; }
+        .fen { font-family: monospace; font-size: 12px; color: #666; }
+        .move-info { margin: 5px 0; }
+        .loading { color: #ff9800; }
+        .error { color: #f44336; }
+        .success { color: #4caf50; }
+        button { padding: 10px 20px; margin: 5px; }
+        .board-container { display: flex; gap: 20px; }
+        .board { width: 400px; height: 400px; display: grid; grid-template-columns: repeat(8, 1fr); border: 2px solid #333; }
+        .square { display: flex; justify-content: center; align-items: center; font-size: 30px; }
+        .square.light { background-color: #f0d9b5; }
+        .square.dark { background-color: #b58863; }
+        .analysis { flex: 1; }
+        .position-list { max-height: 400px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>Stockfish Evaluation Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Setup</h2>
+        <button onclick="startTest()">Start Evaluation Test</button>
+        <button onclick="clearResults()">Clear Results</button>
+        <div id="status"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Game Analysis</h2>
+        <div class="board-container">
+            <div>
+                <h3>Current Position</h3>
+                <div id="chess-board" class="board"></div>
+                <div style="margin-top: 10px;">
+                    <button onclick="goToPosition(currentPositionIndex - 1)">◀ Prev</button>
+                    <span id="position-counter">Position 0/0</span>
+                    <button onclick="goToPosition(currentPositionIndex + 1)">Next ▶</button>
+                </div>
+            </div>
+            <div class="analysis">
+                <h3>Analysis Results</h3>
+                <div id="current-analysis"></div>
+                <div class="position-list" id="position-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="chess.js"></script>
+    <script src="pgn-parser.js"></script>
+    <script src="lichess-api.js"></script>
+    <script src="stockfish-wrapper.js"></script>
+
+    <script>
+        let stockfishEngines = [];
+        const MAX_ENGINES = 4; // Use 4 parallel engines
+        let gamePositions = [];
+        let evaluations = [];
+        let currentPositionIndex = 0;
+        let testGame = null;
+
+        // Famous game: Kasparov vs Topalov, 1999 - "Kasparov's Immortal"
+        const testPGN = `[Event "Hoogovens A Tournament"]
+[Site "Wijk aan Zee NED"]
+[Date "1999.01.20"]
+[Round "4"]
+[White "Garry Kasparov"]
+[Black "Veselin Topalov"]
+[Result "1-0"]
+
+1.e4 d6 2.d4 Nf6 3.Nc3 g6 4.Be3 Bg7 5.Qd2 c6 6.f3 b5 7.Nge2 Nbd7 8.Bh6 Bxh6 9.Qxh6 Bb7 10.a3 e5 11.O-O-O Qe7 12.Kb1 a6 13.Nc1 O-O-O 14.Nb3 exd4 15.Rxd4 c5 16.Rd1 Nb6 17.g3 Kb8 18.Na5 Ba8 19.Bh3 d5 20.Qf4+ Ka7 21.Rhe1 d4 22.Nd5 Nbxd5 23.exd5 Qd6 24.Rxd4 cxd4 25.Re7+ Kb6 26.Qxd4+ Kxa5 27.b4+ Ka4 28.Qc3 Qxd5 29.Ra7 Bb7 30.Rxb7 Qc4 31.Qxf6 Kxa3 32.Qxa6+ Kxb4 33.c3+ Kxc3 34.Qa1+ Kd2 35.Qb2+ Kd1 36.Bf1 Rd2 37.Rd7 Rxd7 38.Bxc4 bxc4 39.Qxh8 Rd3 40.Qa8 c3 41.Qa4+ Ke1 42.f4 f5 43.Kc1 Rd2 44.Qa7 1-0`;
+
+        function status(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<span class="${type}">${message}</span>`;
+        }
+
+        function clearResults() {
+            gamePositions = [];
+            evaluations = [];
+            currentPositionIndex = 0;
+            document.getElementById('position-list').innerHTML = '';
+            document.getElementById('current-analysis').innerHTML = '';
+            renderBoard();
+        }
+
+        async function startTest() {
+            status('Starting evaluation test...', 'loading');
+            
+            // Initialize Stockfish
+            if (!await initializeStockfish()) {
+                status('Failed to initialize Stockfish', 'error');
+                return;
+            }
+
+            // Parse the test game
+            const parser = new PGNParser();
+            const games = parser.parsePGN(testPGN);
+            testGame = games[0];
+            
+            status(`Analyzing game: ${testGame.headers.White} vs ${testGame.headers.Black}`, 'success');
+
+            // Generate all positions
+            generatePositions();
+            
+            // Start analyzing each position
+            await analyzeAllPositions();
+        }
+
+        async function initializeStockfish() {
+            try {
+                status(`Initializing ${MAX_ENGINES} Stockfish engines...`, 'loading');
+                
+                // Initialize multiple engines in parallel
+                const enginePromises = [];
+                for (let i = 0; i < MAX_ENGINES; i++) {
+                    enginePromises.push(createStockfishEngine(i));
+                }
+                
+                stockfishEngines = await Promise.all(enginePromises);
+                status(`${stockfishEngines.length} Stockfish engines ready`, 'success');
+                return true;
+            } catch (error) {
+                status(`Stockfish initialization failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function createStockfishEngine(id) {
+            const engine = new StockfishWrapper();
+            await engine.initialize();
+            engine.id = id;
+            return engine;
+        }
+
+        function generatePositions() {
+            gamePositions = [];
+            const board = new ChessBoard();
+            
+            // Starting position
+            gamePositions.push({
+                board: copyBoard(board),
+                move: 'Starting position',
+                fen: boardToFEN(board),
+                moveNumber: 0
+            });
+
+            // Play through all moves
+            for (let i = 0; i < testGame.moves.length; i++) {
+                const parser = new PGNParser();
+                const moveCoords = parser.moveToCoordinates(testGame.moves[i], board, board.currentTurn);
+                
+                if (moveCoords) {
+                    board.movePiece(
+                        moveCoords.from[0], moveCoords.from[1],
+                        moveCoords.to[0], moveCoords.to[1],
+                        moveCoords.promotion
+                    );
+                    
+                    gamePositions.push({
+                        board: copyBoard(board),
+                        move: testGame.moves[i],
+                        fen: boardToFEN(board),
+                        moveNumber: i + 1
+                    });
+                }
+            }
+
+            status(`Generated ${gamePositions.length} positions`, 'success');
+            goToPosition(0);
+        }
+
+        function copyBoard(board) {
+            const newBoard = new ChessBoard();
+            newBoard.board = board.board.map(row => row.map(piece => piece ? Object.assign(Object.create(Object.getPrototypeOf(piece)), piece) : null));
+            newBoard.currentTurn = board.currentTurn;
+            newBoard.moveHistory = [...board.moveHistory];
+            newBoard.enPassantTarget = board.enPassantTarget;
+            return newBoard;
+        }
+
+        async function analyzeAllPositions() {
+            evaluations = new Array(gamePositions.length).fill(null);
+            
+            // Create chunks for each engine
+            const chunkSize = Math.ceil(gamePositions.length / MAX_ENGINES);
+            const chunks = [];
+            
+            for (let i = 0; i < gamePositions.length; i += chunkSize) {
+                chunks.push({
+                    positions: gamePositions.slice(i, i + chunkSize),
+                    startIndex: i
+                });
+            }
+            
+            status(`Analyzing ${gamePositions.length} positions using ${stockfishEngines.length} engines...`, 'loading');
+            
+            let completedPositions = 0;
+            
+            // Analyze chunks in parallel using different engines
+            const chunkPromises = chunks.map(async (chunk, chunkIndex) => {
+                const engine = stockfishEngines[chunkIndex % stockfishEngines.length];
+                
+                for (let i = 0; i < chunk.positions.length; i++) {
+                    const globalIndex = chunk.startIndex + i;
+                    const position = chunk.positions[i];
+                    
+                    const evaluation = await analyzePositionWithEngine(engine, position.fen);
+                    evaluations[globalIndex] = evaluation;
+                    updatePositionDisplay(globalIndex);
+                    completedPositions++;
+                    
+                    // Update progress
+                    status(`Analyzed ${completedPositions}/${gamePositions.length} positions (Engine ${engine.id + 1})...`, 'loading');
+                }
+            });
+            
+            await Promise.all(chunkPromises);
+            
+            status(`Analysis complete! Analyzed ${gamePositions.length} positions using ${stockfishEngines.length} engines`, 'success');
+        }
+
+        function analyzePositionWithEngine(engine, fen, timeoutMs = 1500) {
+            return new Promise((resolve) => {
+                let bestEval = null;
+                let timeout;
+
+                const messageHandler = (message) => {
+                    if (message.includes('info') && message.includes('score')) {
+                        const scoreMatch = message.match(/score cp (-?\d+)/);
+                        const mateMatch = message.match(/score mate (-?\d+)/);
+                        const depthMatch = message.match(/depth (\d+)/);
+                        const pvMatch = message.match(/pv (.+)/);
+
+                        // Accept lower depth for faster parallel analysis
+                        if (depthMatch && parseInt(depthMatch[1]) >= 8) {
+                            if (mateMatch) {
+                                const mateIn = parseInt(mateMatch[1]);
+                                bestEval = {
+                                    type: 'mate',
+                                    value: mateIn,
+                                    depth: parseInt(depthMatch[1]),
+                                    pv: pvMatch ? pvMatch[1].split(' ').slice(0, 3).join(' ') : ''
+                                };
+                            } else if (scoreMatch) {
+                                const cp = parseInt(scoreMatch[1]);
+                                bestEval = {
+                                    type: 'cp',
+                                    value: cp / 100,
+                                    depth: parseInt(depthMatch[1]),
+                                    pv: pvMatch ? pvMatch[1].split(' ').slice(0, 3).join(' ') : ''
+                                };
+                            }
+                        }
+                    }
+                };
+
+                const cleanup = engine.onMessage(messageHandler);
+
+                timeout = setTimeout(() => {
+                    engine.postMessage('stop'); // Stop current analysis
+                    cleanup();
+                    resolve(bestEval || { type: 'timeout', value: 0, depth: 0, pv: '' });
+                }, timeoutMs);
+
+                // Send analysis commands
+                engine.postMessage('stop'); // Stop any previous analysis
+                engine.postMessage(`position fen ${fen}`);
+                engine.postMessage('go depth 12'); // Lower depth for speed
+
+                // Stop analysis early if we get a reasonable result
+                setTimeout(() => {
+                    if (bestEval && bestEval.depth >= 10) {
+                        engine.postMessage('stop');
+                        clearTimeout(timeout);
+                        cleanup();
+                        resolve(bestEval);
+                    }
+                }, timeoutMs * 0.7); // Stop at 70% of timeout if we have good result
+            });
+        }
+
+        function updatePositionDisplay(index) {
+            const position = gamePositions[index];
+            const evaluation = evaluations[index];
+            
+            const positionList = document.getElementById('position-list');
+            const existingDiv = document.getElementById(`position-${index}`);
+            
+            if (existingDiv) {
+                existingDiv.remove();
+            }
+
+            const div = document.createElement('div');
+            div.id = `position-${index}`;
+            div.className = 'position';
+            
+            let evalText = 'Analyzing...';
+            if (evaluation) {
+                if (evaluation.type === 'mate') {
+                    evalText = `Mate in ${Math.abs(evaluation.value)}`;
+                } else if (evaluation.type === 'cp') {
+                    evalText = `${evaluation.value > 0 ? '+' : ''}${evaluation.value.toFixed(2)}`;
+                } else {
+                    evalText = 'Timeout';
+                }
+            }
+
+            div.innerHTML = `
+                <div class="move-info">
+                    <strong>Move ${index}:</strong> ${position.move}
+                </div>
+                <div class="evaluation">Evaluation: ${evalText}</div>
+                <div class="fen">FEN: ${position.fen}</div>
+                ${evaluation && evaluation.pv ? `<div>Best: ${evaluation.pv}</div>` : ''}
+            `;
+
+            div.onclick = () => goToPosition(index);
+            positionList.appendChild(div);
+        }
+
+        function goToPosition(index) {
+            if (index < 0 || index >= gamePositions.length) return;
+            
+            currentPositionIndex = index;
+            const position = gamePositions[index];
+            
+            renderBoard(position.board);
+            
+            document.getElementById('position-counter').textContent = 
+                `Position ${index + 1}/${gamePositions.length}`;
+            
+            const evaluation = evaluations[index];
+            const analysisDiv = document.getElementById('current-analysis');
+            
+            if (evaluation) {
+                let evalText;
+                if (evaluation.type === 'mate') {
+                    evalText = `Mate in ${Math.abs(evaluation.value)}`;
+                } else if (evaluation.type === 'cp') {
+                    evalText = `${evaluation.value > 0 ? '+' : ''}${evaluation.value.toFixed(2)}`;
+                } else {
+                    evalText = 'Analysis timeout';
+                }
+
+                analysisDiv.innerHTML = `
+                    <h4>Move ${index}: ${position.move}</h4>
+                    <div class="evaluation">Evaluation: ${evalText}</div>
+                    <div>Depth: ${evaluation.depth}</div>
+                    ${evaluation.pv ? `<div>Best line: ${evaluation.pv}</div>` : ''}
+                `;
+            } else {
+                analysisDiv.innerHTML = `
+                    <h4>Move ${index}: ${position.move}</h4>
+                    <div>Analysis pending...</div>
+                `;
+            }
+
+            // Highlight current position in list
+            document.querySelectorAll('.position').forEach(p => p.style.background = '#f9f9f9');
+            const currentDiv = document.getElementById(`position-${index}`);
+            if (currentDiv) {
+                currentDiv.style.background = '#e3f2fd';
+            }
+        }
+
+        function initializeBoard() {
+            const boardElement = document.getElementById('chess-board');
+            boardElement.innerHTML = '';
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const square = document.createElement('div');
+                    square.className = 'square';
+                    square.classList.add((row + col) % 2 === 0 ? 'light' : 'dark');
+                    square.dataset.row = row;
+                    square.dataset.col = col;
+                    boardElement.appendChild(square);
+                }
+            }
+        }
+
+        function renderBoard(board = null) {
+            const squares = document.querySelectorAll('.square');
+            
+            squares.forEach(square => {
+                const row = parseInt(square.dataset.row);
+                const col = parseInt(square.dataset.col);
+                
+                square.innerHTML = '';
+                
+                if (board) {
+                    const piece = board.getPieceAt(row, col);
+                    if (piece) {
+                        square.textContent = piece.getSymbol();
+                    }
+                }
+            });
+        }
+
+        function boardToFEN(board) {
+            let fen = '';
+            
+            for (let row = 0; row < 8; row++) {
+                let emptyCount = 0;
+                
+                for (let col = 0; col < 8; col++) {
+                    const piece = board.getPieceAt(row, col);
+                    
+                    if (!piece) {
+                        emptyCount++;
+                    } else {
+                        if (emptyCount > 0) {
+                            fen += emptyCount;
+                            emptyCount = 0;
+                        }
+                        
+                        const pieceChar = {
+                            [PIECE_TYPES.KING]: 'k',
+                            [PIECE_TYPES.QUEEN]: 'q',
+                            [PIECE_TYPES.ROOK]: 'r',
+                            [PIECE_TYPES.BISHOP]: 'b',
+                            [PIECE_TYPES.KNIGHT]: 'n',
+                            [PIECE_TYPES.PAWN]: 'p'
+                        };
+                        
+                        let char = pieceChar[piece.type];
+                        if (piece.color === COLORS.WHITE) {
+                            char = char.toUpperCase();
+                        }
+                        fen += char;
+                    }
+                }
+                
+                if (emptyCount > 0) {
+                    fen += emptyCount;
+                }
+                
+                if (row < 7) {
+                    fen += '/';
+                }
+            }
+            
+            fen += ' ' + (board.currentTurn === COLORS.WHITE ? 'w' : 'b');
+            fen += ' - - 0 1'; // Simplified castling/en passant/move counts
+            
+            return fen;
+        }
+
+        // Initialize on page load
+        window.onload = function() {
+            initializeBoard();
+            status('Ready to start evaluation test');
+        };
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                goToPosition(currentPositionIndex - 1);
+            } else if (e.key === 'ArrowRight') {
+                goToPosition(currentPositionIndex + 1);
+            }
+        });
+    </script>
+</body>
+</html>
