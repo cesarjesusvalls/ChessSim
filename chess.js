@@ -205,8 +205,9 @@ class Piece {
             const kingSideRook = board.getPieceAt(row, 7);
             if (kingSideRook && kingSideRook.type === PIECE_TYPES.ROOK && !kingSideRook.hasMoved) {
                 if (!board.getPieceAt(row, 5) && !board.getPieceAt(row, 6)) {
-                    if (!board.wouldBeInCheck(this.color, [row, col], [row, 5]) &&
-                        !board.wouldBeInCheck(this.color, [row, col], [row, 6])) {
+                    const opponentColor = this.color === COLORS.WHITE ? COLORS.BLACK : COLORS.WHITE;
+                    if (!board.isSquareAttacked(row, 5, opponentColor) &&
+                        !board.isSquareAttacked(row, 6, opponentColor)) {
                         moves.push([row, 6]);
                     }
                 }
@@ -215,8 +216,9 @@ class Piece {
             const queenSideRook = board.getPieceAt(row, 0);
             if (queenSideRook && queenSideRook.type === PIECE_TYPES.ROOK && !queenSideRook.hasMoved) {
                 if (!board.getPieceAt(row, 1) && !board.getPieceAt(row, 2) && !board.getPieceAt(row, 3)) {
-                    if (!board.wouldBeInCheck(this.color, [row, col], [row, 3]) &&
-                        !board.wouldBeInCheck(this.color, [row, col], [row, 2])) {
+                    const opponentColor = this.color === COLORS.WHITE ? COLORS.BLACK : COLORS.WHITE;
+                    if (!board.isSquareAttacked(row, 3, opponentColor) &&
+                        !board.isSquareAttacked(row, 2, opponentColor)) {
                         moves.push([row, 2]);
                     }
                 }
@@ -410,24 +412,66 @@ class ChessBoard {
         return null;
     }
 
-    isInCheck(color) {
-        const kingPos = this.findKing(color);
-        if (!kingPos) return false;
-
-        const opponentColor = color === COLORS.WHITE ? COLORS.BLACK : COLORS.WHITE;
-        
+    isSquareAttacked(targetRow, targetCol, byColor) {
         for (let row = 0; row < 8; row++) {
             for (let col = 0; col < 8; col++) {
                 const piece = this.getPieceAt(row, col);
-                if (piece && piece.color === opponentColor) {
-                    const moves = piece.getPossibleMoves(this);
-                    if (moves.some(([r, c]) => r === kingPos[0] && c === kingPos[1])) {
+                if (piece && piece.color === byColor) {
+                    const moves = this.getRawMoves(piece, row, col);
+                    if (moves.some(([r, c]) => r === targetRow && c === targetCol)) {
                         return true;
                     }
                 }
             }
         }
         return false;
+    }
+
+    getRawMoves(piece, row, col) {
+        const moves = [];
+        switch (piece.type) {
+            case PIECE_TYPES.PAWN:
+                moves.push(...piece.getPawnMoves(this, row, col));
+                break;
+            case PIECE_TYPES.KNIGHT:
+                moves.push(...piece.getKnightMoves(this, row, col));
+                break;
+            case PIECE_TYPES.BISHOP:
+                moves.push(...piece.getBishopMoves(this, row, col));
+                break;
+            case PIECE_TYPES.ROOK:
+                moves.push(...piece.getRookMoves(this, row, col));
+                break;
+            case PIECE_TYPES.QUEEN:
+                moves.push(...piece.getQueenMoves(this, row, col));
+                break;
+            case PIECE_TYPES.KING:
+                const offsets = [
+                    [-1, -1], [-1, 0], [-1, 1],
+                    [0, -1], [0, 1],
+                    [1, -1], [1, 0], [1, 1]
+                ];
+                for (const [dr, dc] of offsets) {
+                    const newRow = row + dr;
+                    const newCol = col + dc;
+                    if (this.isValidPosition(newRow, newCol)) {
+                        const targetPiece = this.getPieceAt(newRow, newCol);
+                        if (!targetPiece || targetPiece.color !== piece.color) {
+                            moves.push([newRow, newCol]);
+                        }
+                    }
+                }
+                break;
+        }
+        return moves;
+    }
+
+    isInCheck(color) {
+        const kingPos = this.findKing(color);
+        if (!kingPos) return false;
+
+        const opponentColor = color === COLORS.WHITE ? COLORS.BLACK : COLORS.WHITE;
+        return this.isSquareAttacked(kingPos[0], kingPos[1], opponentColor);
     }
 
     wouldBeInCheck(color, fromPos, toPos) {

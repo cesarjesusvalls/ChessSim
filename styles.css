@@ -87,10 +87,7 @@ h1 {
     font-size: 60px;
     user-select: none;
     cursor: grab;
-}
-
-.piece:active {
-    cursor: grabbing;
+    pointer-events: none;
 }
 
 .controls {
