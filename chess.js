@@ -346,8 +346,21 @@ class ChessBoard {
             }
         }
 
+        const isCapture = moveInfo.capturedPiece !== null;
+        const gameStatus = this.getGameStatus();
+        const isCheck = gameStatus.status === 'check';
+        const isCheckmate = gameStatus.status === 'checkmate';
+
         this.moveHistory.push(moveInfo);
         this.currentTurn = this.currentTurn === COLORS.WHITE ? COLORS.BLACK : COLORS.WHITE;
+
+        const postMoveStatus = this.getGameStatus();
+        const postMoveCheck = postMoveStatus.status === 'check';
+        const postMoveCheckmate = postMoveStatus.status === 'checkmate';
+
+        moveInfo.algebraic = this.generateAlgebraicNotation(
+            [fromRow, fromCol], [toRow, toCol], piece, isCapture, postMoveCheck, postMoveCheckmate, promotionType
+        );
 
         return true;
     }
@@ -531,5 +544,119 @@ class ChessBoard {
             return { status: 'check' };
         }
         return { status: 'ongoing' };
+    }
+
+    generateAlgebraicNotation(from, to, piece, isCapture, isCheck, isCheckmate, promotion) {
+        const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        const fromFile = files[from[1]];
+        const toFile = files[to[1]];
+        const fromRank = 8 - from[0];
+        const toRank = 8 - to[0];
+
+        if (piece.type === PIECE_TYPES.KING && Math.abs(to[1] - from[1]) === 2) {
+            return to[1] > from[1] ? 'O-O' : 'O-O-O';
+        }
+
+        let notation = '';
+
+        if (piece.type !== PIECE_TYPES.PAWN) {
+            const pieceChar = {
+                [PIECE_TYPES.KING]: 'K',
+                [PIECE_TYPES.QUEEN]: 'Q',
+                [PIECE_TYPES.ROOK]: 'R',
+                [PIECE_TYPES.BISHOP]: 'B',
+                [PIECE_TYPES.KNIGHT]: 'N'
+            };
+            notation += pieceChar[piece.type];
+
+            const ambiguousPieces = this.findAmbiguousPieces(piece, to);
+            if (ambiguousPieces.length > 0) {
+                const needFile = ambiguousPieces.some(p => p.position[0] === from[0]);
+                const needRank = ambiguousPieces.some(p => p.position[1] === from[1]);
+                
+                if (needFile || !needRank) {
+                    notation += fromFile;
+                }
+                if (needRank) {
+                    notation += fromRank;
+                }
+            }
+        }
+
+        if (isCapture) {
+            if (piece.type === PIECE_TYPES.PAWN && notation === '') {
+                notation += fromFile;
+            }
+            notation += 'x';
+        }
+
+        notation += toFile + toRank;
+
+        if (promotion) {
+            const promotionChar = {
+                [PIECE_TYPES.QUEEN]: 'Q',
+                [PIECE_TYPES.ROOK]: 'R',
+                [PIECE_TYPES.BISHOP]: 'B',
+                [PIECE_TYPES.KNIGHT]: 'N'
+            };
+            notation += '=' + promotionChar[promotion];
+        }
+
+        if (isCheckmate) {
+            notation += '#';
+        } else if (isCheck) {
+            notation += '+';
+        }
+
+        return notation;
+    }
+
+    findAmbiguousPieces(piece, targetPosition) {
+        const ambiguous = [];
+        
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const other = this.getPieceAt(row, col);
+                if (other && other !== piece && other.type === piece.type && other.color === piece.color) {
+                    const moves = other.getPossibleMoves(this);
+                    if (moves.some(([r, c]) => r === targetPosition[0] && c === targetPosition[1])) {
+                        ambiguous.push(other);
+                    }
+                }
+            }
+        }
+        
+        return ambiguous;
+    }
+
+    loadFromPGN(moves) {
+        this.board = Array(8).fill(null).map(() => Array(8).fill(null));
+        this.currentTurn = COLORS.WHITE;
+        this.enPassantTarget = null;
+        this.moveHistory = [];
+        this.capturedPieces = { white: [], black: [] };
+        this.setupInitialPosition();
+
+        const parser = new PGNParser();
+        
+        for (const moveStr of moves) {
+            const moveCoords = parser.moveToCoordinates(moveStr, this, this.currentTurn);
+            if (moveCoords) {
+                const result = this.movePiece(
+                    moveCoords.from[0], moveCoords.from[1],
+                    moveCoords.to[0], moveCoords.to[1],
+                    moveCoords.promotion
+                );
+                if (!result || result === 'promotion_required') {
+                    console.error('Failed to play move:', moveStr);
+                    return false;
+                }
+            } else {
+                console.error('Could not parse move:', moveStr);
+                return false;
+            }
+        }
+        
+        return true;
     }
 }

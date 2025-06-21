@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChessSim - Game Database & Analysis</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="database-styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>ChessSim Database</h1>
+            <nav>
+                <a href="index.html" class="nav-link">Play</a>
+                <a href="database.html" class="nav-link active">Database</a>
+            </nav>
+        </header>
+
+        <div class="main-content">
+            <aside class="sidebar">
+                <div class="search-section">
+                    <h3>Search Games</h3>
+                    <input type="text" id="player-search" placeholder="Player name...">
+                    <button id="search-lichess" class="search-btn">Search Lichess</button>
+                    <button id="load-pgn" class="search-btn">Load PGN File</button>
+                    <input type="file" id="pgn-file-input" accept=".pgn" style="display: none;">
+                </div>
+
+                <div class="game-list-section">
+                    <h3>Games</h3>
+                    <div id="game-list" class="game-list"></div>
+                </div>
+            </aside>
+
+            <main class="game-viewer">
+                <div class="board-section">
+                    <div id="chess-board" class="chess-board analysis-board"></div>
+                    <div class="board-controls">
+                        <button id="first-move" title="First move">⏮</button>
+                        <button id="prev-move" title="Previous move">◀</button>
+                        <button id="next-move" title="Next move">▶</button>
+                        <button id="last-move" title="Last move">⏭</button>
+                        <button id="flip-board" title="Flip board">🔄</button>
+                    </div>
+                </div>
+
+                <div class="analysis-section">
+                    <div class="game-info">
+                        <h3 id="game-title">Select a game to analyze</h3>
+                        <div id="game-details"></div>
+                    </div>
+
+                    <div class="moves-section">
+                        <h4>Moves</h4>
+                        <div id="move-list" class="move-list"></div>
+                    </div>
+
+                    <div class="evaluation-section">
+                        <h4>Position Evaluation</h4>
+                        <div id="evaluation-bar" class="evaluation-bar">
+                            <div id="evaluation-fill" class="evaluation-fill"></div>
+                            <span id="evaluation-score" class="evaluation-score">0.0</span>
+                        </div>
+                        <div id="engine-info" class="engine-info"></div>
+                        <button id="toggle-engine" class="engine-btn">Start Engine</button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="chess.js"></script>
+    <script src="pgn-parser.js"></script>
+    <script src="database.js"></script>
+    <script src="lichess-api.js"></script>
+    <script src="stockfish-interface.js"></script>
+</body>
+</html>
