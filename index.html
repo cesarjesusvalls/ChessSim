@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChessSim - Play Chess</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>ChessSim</h1>
+        <div class="game-info">
+            <div id="turn-indicator">White's Turn</div>
+            <div id="game-status"></div>
+        </div>
+        <div id="chess-board" class="chess-board"></div>
+        <div class="controls">
+            <button id="new-game">New Game</button>
+            <button id="undo-move">Undo Move</button>
+        </div>
+        <div id="promotion-modal" class="modal hidden">
+            <div class="modal-content">
+                <h3>Promote Pawn To:</h3>
+                <div class="promotion-options">
+                    <button class="promotion-piece" data-piece="queen">♕</button>
+                    <button class="promotion-piece" data-piece="rook">♖</button>
+                    <button class="promotion-piece" data-piece="bishop">♗</button>
+                    <button class="promotion-piece" data-piece="knight">♘</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="chess.js"></script>
+    <script src="ui.js"></script>
+</body>
+</html>
